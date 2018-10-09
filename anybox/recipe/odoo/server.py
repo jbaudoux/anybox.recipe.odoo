@@ -54,6 +54,17 @@ class ServerRecipe(BaseRecipe):
             sw_modules = ('web', ) + sw_modules
         self.server_wide_modules = sw_modules
 
+        if self.python_scripts_executable:
+            # Monkeypatch the script headers to replace the python
+            # executable by the one configured by the user
+            new_header = '#!%s' % self.python_scripts_executable
+            zc.buildout.easy_install.script_template = (
+                zc.buildout.easy_install.script_template.replace(
+                    zc.buildout.easy_install.script_header, new_header))
+            zc.buildout.easy_install.py_script_template = (
+                zc.buildout.easy_install.py_script_template.replace(
+                    zc.buildout.easy_install.script_header, new_header))
+
     def apply_version_dependent_decisions(self):
         """Store some booleans depending on detected version.
 
@@ -250,17 +261,23 @@ conf = odoo.tools.config
             desc = self.odoo_scripts[name] = dict(entry=entry)
             return name, desc
 
+    def _relativitize(self, path):
+        """Inspired from easy_install"""
+        if self._relative_paths:
+            return "join(base, %r)" % self.make_relative(path)
+        return path
+
     def _register_main_startup_script(self, qualified_name):
         """Register main startup script, usually ``start_odoo`` for install.
         """
         desc = self._get_or_create_script('odoo_starter',
                                           name=qualified_name)[1]
 
-        arguments = '%r, %r, version=%r, gevent_script_path=%r' % (
-            self._get_server_command(),
-            self.config_path,
+        arguments = '%s, %s, version=%r, gevent_script_path=%s' % (
+            self._relativitize(self._get_server_command()),
+            self._relativitize(self.config_path),
             self.major_version,
-            self.gevent_script_path)
+            self._relativitize(self.gevent_script_path))
 
         if self.server_wide_modules:
             arguments += ', server_wide_modules=%r' % (
@@ -290,9 +307,9 @@ conf = odoo.tools.config
         """
         desc = self._get_or_create_script('odoo_tester',
                                           name=qualified_name)[1]
-        arguments = '%r, %r, version=%r, just_test=True' % (
-            self._get_server_command(),
-            self.config_path,
+        arguments = '%s, %s, version=%r, just_test=True' % (
+            self._relativitize(self._get_server_command()),
+            self._relativitize(self.config_path),
             self.major_version)
         arguments += ', gevent_script_path=%r' % self.gevent_script_path
 
@@ -319,9 +336,10 @@ conf = odoo.tools.config
         script_source_path = self.make_absolute(script[0])
         desc.update(
             entry='odoo_upgrader',
-            arguments='%r, %r, %r, %r' % (
-                script_source_path, script[1],
-                self.config_path, self.buildout_dir),
+            arguments='%s, %r, %s, %r' % (
+                self._relativitize(script_source_path), script[1],
+                self._relativitize(self.config_path),
+                self.jailroot_dir and '/' or self.buildout_dir),
         )
 
         if not os.path.exists(script_source_path):
@@ -353,7 +371,8 @@ conf = odoo.tools.config
         # to resort on hacking sys.argv
         desc['initialization'] = (
             "from sys import argv; argv[1:] = ['%s', '-c', '%s.conf.py']" % (
-                gunicorn_entry_point, join(self.etc, qualified_name)))
+                gunicorn_entry_point,
+                self._relativitize(join(self.etc, qualified_name))))
 
     def _register_gevent_script(self, qualified_name):
         """Register the gevent startup script
@@ -407,7 +426,9 @@ conf = odoo.tools.config
         desc = self._get_or_create_script('odoo_cron_worker',
                                           name=qualified_name)[1]
         desc.update(entry='odoo_cron_worker',
-                    arguments='%r, %r' % (script_src, self.config_path),
+                    arguments='%s, %s' % (
+                        self._relativitize(script_src),
+                        self._relativitize(self.config_path)),
                     initialization='',
                     )
 
@@ -422,8 +443,9 @@ conf = odoo.tools.config
         initialization = os.linesep.join((
             "",
             "from anybox.recipe.odoo.runtime.session import Session",
-            "session = Session(%r, %r)" % (self.config_path,
-                                           self.buildout_dir),
+            "session = Session(%s, %r)" % (
+                self._relativitize(self.config_path),
+                self.jailroot_dir and '/' or self.buildout_dir),
             "if len(sys.argv) <= 1:",
             "    print('To start the Odoo working session, just do:')",
             "    print('    session.open(db=DATABASE_NAME)')",
@@ -454,8 +476,7 @@ conf = odoo.tools.config
             initialization=initialization,
             arguments=self.options.get('arguments', ''),
             extra_paths=self.extra_paths,
-            # TODO investigate these options:
-            # relative_paths=self._relative_paths,
+            relative_paths=self._relative_paths,
         )
 
     def _install_odoo_scripts(self):
@@ -472,8 +493,9 @@ conf = odoo.tools.config
         common_init = os.linesep.join((
             "",
             "from anybox.recipe.odoo.runtime.session import Session",
-            "session = Session(%r, %r)" % (self.config_path,
-                                           self.buildout_dir),
+            "session = Session(%s, %r)" % (
+                self._relativitize(self.config_path),
+                self.jailroot_dir and '/' or self.buildout_dir),
         ))
 
         for script_name, desc in self.odoo_scripts.items():
@@ -497,9 +519,8 @@ conf = odoo.tools.config
                 interpreter='',
                 initialization=initialization,
                 arguments=desc.get('arguments', ''),
-                # TODO investigate these options:
                 extra_paths=self.extra_paths,
-                # relative_paths=self._relative_paths,
+                relative_paths=self._relative_paths,
             )
             self.odoo_installed.append(join(self.bin_dir, script_name))
 

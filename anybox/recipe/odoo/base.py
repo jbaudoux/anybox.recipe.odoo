@@ -57,6 +57,26 @@ def rfc822_time(h):
     email_utils.mktime_tz(email_utils.parsedate_tz(h))
 
 
+def _common_path(*path):
+    """Return the longest path prefix that is a prefix of all paths"""
+    return os.path.dirname(os.path.commonprefix(path))
+
+
+def _relative_path(common, path):
+    """Copied from easy_install"""
+    r = []
+    while 1:
+        dirname, basename = os.path.split(path)
+        r.append(basename)
+        if dirname == common:
+            break
+        if dirname == path:
+            raise AssertionError("dirname of %s is the same" % dirname)
+        path = dirname
+    r.reverse()
+    return os.path.join(*r)
+
+
 def get_content_type(msg):
     """Return the mimetype of the HTTP message.
     This is a helper to support Python 2 and 3.
@@ -218,6 +238,22 @@ class BaseRecipe(object):
         self.vcs_clear_locks = clear_locks == 'true'
         clear_retry = options.get('vcs-clear-retry', '').lower()
         self.clear_retry = clear_retry == 'true'
+        self.jailroot_dir = options.get('jailroot-dir')
+        self.python_scripts_executable = options.get(
+            'python_scripts_executable')
+
+        if self.jailroot_dir:
+            options['relative-paths'] = 'true'
+        # same as in zc.recipe.eggs
+        relative_paths = options.get(
+            'relative-paths',
+            buildout['buildout'].get('relative-paths', 'false')
+            )
+        if relative_paths == 'true':
+            self._relative_paths = self.buildout_dir
+        else:
+            self._relative_paths = ''
+            assert relative_paths == 'false'
 
         if self.bool_opt_get(WITH_ODOO_REQUIREMENTS_FILE_OPTION):
             logger.debug("%s option: adding 'pip' to the recipe requirements",
@@ -707,6 +743,21 @@ class BaseRecipe(object):
         if os.path.isabs(path):
             return path
         return join(self.buildout_dir, path)
+
+    def make_jailroot_absolute(self, path):
+        """Make a path absolute to the jailroot."""
+        if self.jailroot_dir:
+            return join('/', self.make_relative(path))
+        return path
+
+    def make_relative(self, path):
+        """Make a path relative to the jailroot or buildout dir"""
+        if self._relative_paths:
+            root = self.jailroot_dir or self.buildout_dir
+            common = _common_path(path, root+'/')
+            relative = _relative_path(common, path)
+            return relative
+        return path
 
     def sandboxed_tar_extract(self, sandbox, tarfile, first=None):
         """Extract those members that are below the tarfile path 'sandbox'.
@@ -1643,6 +1694,11 @@ class BaseRecipe(object):
                 assert os.path.isdir(path), (
                     "Not a directory: %r (aborting)" % path)
 
+        addons_paths = list(self.addons_paths)
+        self.addons_paths = [
+            self.make_jailroot_absolute(addons_path)
+            for addons_path in addons_paths
+            ]
         self.options['options.addons_path'] = ','.join(self.addons_paths)
 
     def insert_odoo_git_addons(self, base_addons):

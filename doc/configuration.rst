@@ -484,6 +484,43 @@ perform relevant VCS idea of "clean, purge".
 
 Note that tarball downloads get re-extracted afresh in any case.
 
+:: _relocation_options:
+
+Options for buildout relocation and root jail
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. _relative-paths:
+
+relative-paths
+--------------
+
+If set to true, this option will set up a movable buildout. Paths in scripts
+will be made relative to the buildout directory so that it can be relocated
+on the file system.
+
+.. _jailroot-dir:
+
+jailroot-dir
+------------
+
+If you build a jail root environment, specify the absolute path of the jail.
+Note that it must be a sub-directory of the buildout dir as easy install cannot
+build outside of the buildout dir. The addons-paths in the OpenERP configuration
+file will be adapted to this path. This option implies :ref:`relative-paths`.
+For instance, if you deploy OpenERP under a ``myjail`` sub-directory::
+
+    jailroot-dir = /root/mybuildout-dir/myjail
+
+.. _python-scripts-executable:
+
+python-scripts-executable
+-------------------------
+
+Specify an alternative Python executable to be used in the she-bang of
+generated scripts. For use in a jail root, ``/usr/bin/env python`` should
+be a sane value, or you could hardcode the path to the Python executable
+in your jail root.
+
 vcs-revert
 ----------
 
